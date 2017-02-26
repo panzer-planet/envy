@@ -1,7 +1,0 @@
-2017-02-26T14:30:20+02:00: Log initialised at /Users/werner/github/envy/.durban/log.txt
-2017-02-26T14:30:20+02:00: durban is booting...
-2017-02-26T14:30:20+02:00: blessed initialised
-2017-02-26T14:30:20+02:00: loaded /Users/werner/github/envy/.durban/config.json
-2017-02-26T14:30:20+02:00: GUI initialised
-2017-02-26T14:30:20+02:00: Getting channel list
-2017-02-26T14:30:22+02:00: Could not init slack client token_revoked
