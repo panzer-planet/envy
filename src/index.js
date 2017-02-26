@@ -17,6 +17,7 @@ const os = require('os')
 const blessed = require('blessed')
 const contrib = require('blessed-contrib')
 const SlackWebClient = require('@slack/client').WebClient
+var moment = require('moment')
 
 // CONSTANTS
 const PACKAGE_NAME = require(CWD + '/package.json').name
@@ -38,28 +39,32 @@ const SLACK_API_TOKEN = DEV ? require(CWD + "/slack_dev_token.json")
 // SLACK GLOBALS
 var swc = null
 var channels= []
-var write_streams = {
-  log: null,
-  user_config: null
-}
-
 // BLESSED GLOBALS
+
 const blessedProgram = blessed.program()
 var gui = {
   screen: null,
   messageBox: null,
   form: null,
-  textinput: null
+  textBox: null
+}
+
+// DURBAN GLOBALS
+var write_streams = {
+  log: null,
+  user_config: null
 }
 
 function initLog(callback) {
+  const startDemarcation  = "######################################"
+  const startTime = moment().format()
   fs.access(USER_FOLDER, fs.constants.F_OK, err => {
     if(err) {
       fs.mkdir(USER_FOLDER, err => {
         if(err) {
           throw err
         } else {
-          fs.writeFile(LOG_FILE, PACKAGE_NAME + "  log\n", err => {
+          fs.writeFile(LOG_FILE, startDemarcation + PACKAGE_NAME + " log " + moment().format() + "\n", err => {
             if(err) {
               throw err
             } else {
@@ -70,7 +75,7 @@ function initLog(callback) {
         }
       })
     } else {
-      fs.writeFile(LOG_FILE, PACKAGE_NAME + " log\n", err => {
+      fs.writeFile(LOG_FILE, `\n${startDemarcation}\n${PACKAGE_NAME} log ${startTime} \n`, err => {
         if(err) {
           throw err
         } else {
@@ -116,23 +121,28 @@ function initUserConfig(callback) {
 }
 
 
-
 function initBlessed(callback) {
-
   gui.screen = blessed.screen({
     smartCSR: true,
     autoPadding: true,
   })
 
-  screen.title = PACKAGE_NAME
+  gui.screen.title = PACKAGE_NAME
 
-  // Channel message box
-  var box = blessed.box({
-    parent: screen,
+  gui.screen.key(['escape', 'q', 'C-c'], function(ch, key) {
+    shut_down()
+  })
+
+  callback()
+}
+
+function initGUI(callback) {
+
+  gui.messageBox = blessed.box({
+    parent: gui.screen,
     scrollable: true,
     alwaysScroll: true,
     // fg: 'green',
-    label: channels[0].name,
     width: '100%',
     height: '80%',
     valign: 'bottom',
@@ -146,8 +156,8 @@ function initBlessed(callback) {
   })
 
   // Message input form
-  var inputBox = blessed.textarea({
-    parent: screen,
+  gui.inputBox = blessed.textarea({
+    parent: gui.screen,
     bottom: 0,
     width: '100%',
     height: '20%',
@@ -156,16 +166,28 @@ function initBlessed(callback) {
       fg: 'yellow'
     }
   })
-  screen.key(['escape', 'q', 'C-c'], function(ch, key) {
-    shut_down()
-  })
+  gui.screen.render()
 
-  screen.render()
+  // Channel message box
+  callback()
 }
 
-function log(text, callback) {
-  write_streams.log.write(text + "\n")
-  callback()
+function initSlackClient(callback) {
+  swc = new SlackWebClient(SLACK_API_TOKEN)
+  log('Getting channel list')
+  swc.channels.list(function(err, info) {
+    if (err) {
+      callback(err)
+    } else {
+      log("Channel list populated")
+      channels = info.channels
+      callback()
+    }
+  })
+}
+
+function log(text) {
+  write_streams.log.write(moment().format() + ": " + text + "\n")
 }
 
 /**
@@ -174,36 +196,62 @@ function log(text, callback) {
 function boot(callback) {
   blessedProgram.clear();
   blessedProgram.write(PACKAGE_NAME + " is starting up...")
-  var icon = blessed.image({
-    parent: gui.screen,
-    top: 0,
-    left: 0,
-    type: 'overlay',
-    width: 'shrink',
-    height: 'shrink',
-    file: __dirname + '/nosmoking.png',
-    search: false
-  });
-
   initLog(() => {
-    initUserConfig(() => {
-      swc = new SlackWebClient(SLACK_API_TOKEN)
-      swc.channels.list(function(err, info) {
-        if (err) {
-          log(err,() => {
-            callback(err)
+    log("Log initialised at " + LOG_FILE)
+    log(PACKAGE_NAME + " is booting...")
+    initBlessed(() => {
+      // show splash
+      log("blessed initialised")
+      initUserConfig(() => {
+        log("loaded " + USER_CONFIG_FILE)
+        initGUI(() => {
+          gui.screen.render()
+          log("GUI initialised")
+          initSlackClient((err) => {
+
+            if(err) {
+              log("Could not init slack client " + err.message)
+              if(err.message === 'token_revoked') {
+                // Tell the user
+                  gui.dialog = blessed.message({
+                    parent: gui.screen,
+                    width: '100%',
+                    height: '20%',
+                    valign: 'middle',
+                    border: {
+                      type: 'line',
+                      fg: '#ff9200'
+                    },
+                    style: {
+                      hover: {
+                        bg: 'red'
+                      },
+                      transparent: true,
+                      invisible: true
+                    }
+                  })
+                gui.dialog.error("FATAL ERROR: Invalid slack token. Please check your SLACK_API_TOKEN environment variable.", () => {
+                  shut_down()
+                })
+              } else {
+                // smooth sailing
+              }
+            } else {
+              log("Slack client initialised")
+
+              // after boot
+              callback()
+            }
           })
-        } else {
-          channels = info.channels
-          initBlessed(() => {
-            callback()
-          })
-        }
+        })
       })
     })
   })
 }
 
+/**
+ * Bring down safely
+ */
 function shut_down() {
   blessedProgram.clear();
   blessedProgram.disableMouse();
@@ -219,6 +267,7 @@ boot((err) => {
   if(err) {
     throw err
   } else {
+    log("startup complete")
     // ready and waiting
   }
 })
